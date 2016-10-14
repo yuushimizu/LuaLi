@@ -30,47 +30,42 @@ local special_symbols = {
 local session = {}
 
 function session:read()
-  if self.reading_string and self.position > self.reading_string:len() then
+  while self.reading_string and self.reading_string:len() == 0 do
     coroutine.yield(function() self.reading_string = self.reader() end)
-    self.position = 1
   end
-  return self.reading_string, self.position
+  return self.reading_string
 end
 
-function session:seek(position)
-  self.position = position
+function session:spend(length)
+  if self.reading_string then
+    self.reading_string = self.reading_string:sub(length + 1)
+  end
 end
 
 function session:emit(form)
   coroutine.yield(function() self.callback(form) end)
 end
 
-function session:match(pattern)
-  local joined = nil
-  local start = 1
+function session:next_match(pattern)
+  local joined = ""
   while true do
-    local s, pos = self:read()
+    local s = self:read()
     if not s then
       break
     end
-    if not joined then
-      joined = s
-      start = pos
-    else
-      joined = joined .. (pos > 1 and s:sub(pos) or pos)
-    end
-    local match_start, match_end = joined:find(pattern, start)
+    joined = joined .. s
+    local match_start, match_end = joined:find(pattern)
     if match_start then
-      self:seek(match_end - (joined:len() - s:len()))
-      return joined:sub(match_start, match_end), joined:sub(start, match_start - 1)
+      self:spend(match_end - (joined:len() - s:len()) - 1)
+      return joined:sub(match_start, match_end), joined:sub(1, match_start - 1)
     end
-    self:seek(s:len() + 1)
+    self:spend(s:len())
   end
-  return nil, joined and joined:sub(start) or ""
+  return nil, joined
 end
 
 function session:parse_symbol()
-  local _, token = self:match("[%s" .. special_character_class() .. "]")
+  local _, token = self:next_match("[%s" .. special_character_class() .. "]")
   local value = tonumber(token)
   if value ~= nil then
     return value
@@ -83,7 +78,7 @@ function session:parse_symbol()
 end
 
 function session:parse_next()
-  local token_start = self:match("%S")
+  local token_start = self:next_match("%S")
   if token_start then
     return (special_characters[token_start] or self.parse_symbol)(self), true
   end
@@ -104,8 +99,7 @@ M.parse = function(reader, callback)
     {
       reader = reader,
       callback = callback,
-      reading_string = reader(),
-      position = 1
+      reading_string = reader()
     }, session_mt)
   local coro = coroutine.wrap(function()
       session:parse_toplevel()
@@ -120,3 +114,5 @@ M.parse = function(reader, callback)
 end
 
 return M
+
+
