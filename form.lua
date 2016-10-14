@@ -52,7 +52,7 @@ M.cons = form(
     return {car = car, cdr = cdr or empty_list}
   end,
   function(self)
-    return "(" .. to_lua(self.car) .. "(" .. cons_to_explist(self.cdr) .. "))"
+    return to_lua(self.car) .. "(" .. cons_to_explist(self.cdr) .. ")"
 end)
 
 M.list = function(...)

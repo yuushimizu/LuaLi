@@ -3,8 +3,6 @@ local form = require("form")
 local M = {}
 
 local special_characters = {
-  ["("] = 1,
-  [")"] = 1,
   ["{"] = 1,
   ["}"] = 1,
   ["["] = 1,
@@ -28,16 +26,25 @@ local special_symbols = {
 local session = {}
 
 function session:read()
-  while self.reading_string and self.reading_string:len() == 0 do
-    coroutine.yield(function() self.reading_string = self.reader() end)
+  while not self.eof and self.reading_string:len() == 0 do
+    coroutine.yield(function()
+        local s = self.reader()
+        if s then
+          self.reading_string = s
+        else
+          self.eof = true
+        end
+    end)
   end
   return self.reading_string
 end
 
 function session:spend(length)
-  if self.reading_string then
-    self.reading_string = self.reading_string:sub(length + 1)
-  end
+  self.reading_string = self.reading_string:sub(length + 1)
+end
+
+function session:pushBack(s)
+  self.reading_string = s .. self.reading_string
 end
 
 function session:emit(form)
@@ -48,17 +55,15 @@ function session:next_match(pattern)
   local joined = ""
   while true do
     local s = self:read()
-    if s then
-      joined = joined .. s
-    end
+    joined = joined .. s
     local match_start, match_end = joined:find(pattern)
-    if match_start and (not s or match_end < joined:len()) then
+    if match_start and (self.eof or match_end < joined:len()) then
       if s then
-        self:spend(match_end - (joined:len() - s:len()) - 1)
+        self:spend(match_end - (joined:len() - s:len()))
       end
       return joined:match(pattern)
     end
-    if not s then
+    if self.eof then
       break
     end
     self:spend(s:len())
@@ -68,7 +73,6 @@ end
 
 function session:parse_symbol()
   local token = self:next_match("[^%s" .. special_character_class() .. "]+")
-  self:spend(1)
   local value = tonumber(token)
   if value ~= nil then
     return value
@@ -80,34 +84,63 @@ function session:parse_symbol()
   return form.symbol(token)
 end
 
+function session:next_token_start()
+  return self:next_match("%S")
+end
+
 function session:parse_next()
-  local token_start = self:next_match("%S")
-  if token_start then
-    return (special_characters[token_start] or self.parse_symbol)(self), true
+  local token_start = self:next_token_start()
+  if not token_start then
+    return
   end
+  local special_parser = special_characters[token_start]
+  if special_parser then
+    return special_parser(self), true
+  end
+  self:pushBack(token_start)
+  return self:parse_symbol(), true
 end
 
 special_characters['"'] = function(self)
   local result = ""
   while true do
-    local match = self:next_match('"([^"]*)"')
+    local match = self:next_match('([^"]*)"')
     local len = match:len()
     result = result .. match
     if match:sub(match:len()) ~= "\\" then
-      break
+      return result
     end
     result = result .. '"'
   end
-  return result
 end
 
 special_characters["'"] = function(self)
-  self:spend(1)
   local next_form, parsed = self:parse_next()
   if not parsed then
     error("unexpected eof")
   end
   return form.list(form.symbol("quote"), next_form)
+end
+
+special_characters["("] = function(self)
+  local elements = {}
+  while true do
+    local token_start = self:next_token_start()
+    if token_start == ")" then
+      break
+    end
+    self:pushBack(token_start)
+    local next_form, parsed = self:parse_next()
+    if not parsed then
+      error("unexpected eof")
+    end
+    table.insert(elements, next_form)
+  end
+  return form.list(unpack(elements))
+end
+
+special_characters[")"] = function()
+  error("unexpected )")
 end
 
 function session:parse_toplevel()
@@ -125,7 +158,8 @@ M.parse = function(reader, callback)
     {
       reader = reader,
       callback = callback,
-      reading_string = reader()
+      reading_string = "",
+      eof = false
     }, session_mt)
   local coro = coroutine.wrap(function()
       session:parse_toplevel()
