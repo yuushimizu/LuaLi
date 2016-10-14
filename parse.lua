@@ -58,9 +58,7 @@ function session:next_match(pattern)
     joined = joined .. s
     local match_start, match_end = joined:find(pattern)
     if match_start and (self.eof or match_end < joined:len()) then
-      if s then
-        self:spend(match_end - (joined:len() - s:len()))
-      end
+      self:spend(match_end - (joined:len() - s:len()))
       return joined:match(pattern)
     end
     if self.eof then
