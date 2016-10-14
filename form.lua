@@ -55,4 +55,13 @@ M.cons = form(
     return "(" .. to_lua(self.car) .. "(" .. cons_to_explist(self.cdr) .. "))"
 end)
 
+M.list = function(...)
+  local args = {...}
+  local result = nil
+  for i = select("#", ...), 1, -1 do
+    result = M.cons(args[i], result)
+  end
+  return result
+end
+
 return M

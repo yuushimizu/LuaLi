@@ -3,7 +3,6 @@ local form = require("form")
 local M = {}
 
 local special_characters = {
-  ["'"] = 1,
   ["("] = 1,
   [")"] = 1,
   ["{"] = 1,
@@ -100,6 +99,15 @@ special_characters['"'] = function(self)
     result = result .. '"'
   end
   return result
+end
+
+special_characters["'"] = function(self)
+  self:spend(1)
+  local next_form, parsed = self:parse_next()
+  if not parsed then
+    error("unexpected eof")
+  end
+  return form.list(form.symbol("quote"), next_form)
 end
 
 function session:parse_toplevel()
