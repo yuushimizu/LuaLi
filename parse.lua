@@ -50,14 +50,18 @@ function session:next_match(pattern)
   local joined = ""
   while true do
     local s = self:read()
+    if s then
+      joined = joined .. s
+    end
+    local match_start, match_end = joined:find(pattern)
+    if match_start and (not s or match_end < joined:len()) then
+      if s then
+        self:spend(match_end - (joined:len() - s:len()) - 1)
+      end
+      return joined:match(pattern)
+    end
     if not s then
       break
-    end
-    joined = joined .. s
-    local match_start, match_end = joined:find(pattern)
-    if match_start then
-      self:spend(match_end - (joined:len() - s:len()) - 1)
-      return joined:sub(match_start, match_end), joined:sub(1, match_start - 1)
     end
     self:spend(s:len())
   end
@@ -65,7 +69,8 @@ function session:next_match(pattern)
 end
 
 function session:parse_symbol()
-  local _, token = self:next_match("[%s" .. special_character_class() .. "]")
+  local token = self:next_match("[^%s" .. special_character_class() .. "]+")
+  self:spend(1)
   local value = tonumber(token)
   if value ~= nil then
     return value
@@ -88,7 +93,7 @@ function session:parse_toplevel()
   local form, parsed = self:parse_next()
   if parsed then
     self:emit(form)
-    self:parse_toplevel()
+    return self:parse_toplevel()
   end
 end
 
