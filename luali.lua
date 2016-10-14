@@ -12,7 +12,10 @@ local function print_parse(s)
 end
 
 print_parse("  hoge piyo foo")
+print_parse("hoge   ")
 print_parse("true")
 print_parse("false")
 print_parse("nil")
 print_parse("-23.4e5")
+print_parse('"foo"')
+print_parse('"fo\\\"oo"')

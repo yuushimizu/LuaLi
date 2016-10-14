@@ -3,7 +3,6 @@ local form = require("form")
 local M = {}
 
 local special_characters = {
-  ['"'] = 1,
   ["'"] = 1,
   ["("] = 1,
   [")"] = 1,
@@ -87,6 +86,20 @@ function session:parse_next()
   if token_start then
     return (special_characters[token_start] or self.parse_symbol)(self), true
   end
+end
+
+special_characters['"'] = function(self)
+  local result = ""
+  while true do
+    local match = self:next_match('"([^"]*)"')
+    local len = match:len()
+    result = result .. match
+    if match:sub(match:len()) ~= "\\" then
+      break
+    end
+    result = result .. '"'
+  end
+  return result
 end
 
 function session:parse_toplevel()
