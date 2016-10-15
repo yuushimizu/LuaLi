@@ -43,22 +43,18 @@ function session:spend(length)
   self.reading_string = self.reading_string:sub(length + 1)
 end
 
-function session:pushBack(s)
-  self.reading_string = s .. self.reading_string
-end
-
 function session:emit(form)
   coroutine.yield(function() self.callback(form) end)
 end
 
-function session:next_match(pattern)
+function session:next_match(pattern, keep_last)
   local joined = ""
   while true do
     local s = self:read()
     joined = joined .. s
     local match_start, match_end = joined:find(pattern)
     if match_start and (self.eof or match_end < joined:len()) then
-      self:spend(match_end - (joined:len() - s:len()))
+      self:spend(match_end - (joined:len() - s:len()) - (keep_last and 1 or 0))
       return joined:match(pattern)
     end
     if self.eof then
@@ -83,7 +79,7 @@ function session:parse_symbol()
 end
 
 function session:next_token_start()
-  return self:next_match("%S")
+  return self:next_match("%S", true)
 end
 
 function session:parse_next()
@@ -93,9 +89,9 @@ function session:parse_next()
   end
   local special_parser = special_characters[token_start]
   if special_parser then
+    self:spend(1)
     return special_parser(self), true
   end
-  self:pushBack(token_start)
   return self:parse_symbol(), true
 end
 
@@ -125,9 +121,9 @@ special_characters["("] = function(self)
   while true do
     local token_start = self:next_token_start()
     if token_start == ")" then
+      self:spend(1)
       break
     end
-    self:pushBack(token_start)
     local next_form, parsed = self:parse_next()
     if not parsed then
       error("unexpected eof")
