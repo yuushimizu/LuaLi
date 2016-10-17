@@ -25,22 +25,20 @@ local special_symbols = {
 
 local session = {}
 
-function session:read()
-  while not self.eof and self.reading_string:len() == 0 do
-    coroutine.yield(function()
-        local s = self.reader()
-        if s then
-          self.reading_string = s
-        else
-          self.eof = true
-        end
-    end)
+function session:read_more()
+  if not self.eof then
+    local s
+    coroutine.yield(function() s = self.reader() end)
+    if s then
+      self.buffer = self.buffer .. s
+    else
+      self.eof = true
+    end
   end
-  return self.reading_string
 end
 
 function session:spend(length)
-  self.reading_string = self.reading_string:sub(length + 1)
+  self.buffer = self.buffer:sub(length + 1)
 end
 
 function session:emit(form)
@@ -48,21 +46,18 @@ function session:emit(form)
 end
 
 function session:next_match(pattern, keep_last)
-  local joined = ""
   while true do
-    local s = self:read()
-    joined = joined .. s
-    local match_start, match_end = joined:find(pattern)
-    if match_start and (self.eof or match_end < joined:len()) then
-      self:spend(match_end - (joined:len() - s:len()) - (keep_last and 1 or 0))
-      return joined:match(pattern)
+    local s = self.buffer
+    local match_start, match_end = s:find(pattern)
+    if match_start and (self.eof or match_end < s:len()) then
+      self:spend(match_end - (keep_last and 1 or 0))
+      return s:match(pattern)
     end
     if self.eof then
-      break
+      return
     end
-    self:spend(s:len())
+    self:read_more()
   end
-  return nil, joined
 end
 
 function session:parse_symbol()
@@ -152,7 +147,7 @@ M.parse = function(reader, callback)
     {
       reader = reader,
       callback = callback,
-      reading_string = "",
+      buffer = "",
       eof = false
     }, session_mt)
   local coro = coroutine.wrap(function()
