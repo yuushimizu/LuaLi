@@ -55,7 +55,6 @@ function session:parse_symbol()
   if number ~= nil then
     return number
   end
-print(token, token == nil)
   return form.symbol(token)
 end
 
