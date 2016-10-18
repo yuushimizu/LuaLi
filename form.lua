@@ -1,21 +1,33 @@
 local M = {}
 
+local function table_to_lua(t)
+  local code_pairs = {}
+  for i, v in pairs(t) do
+    table.insert(code_pairs, "[" .. M.to_lua(i) .. "] = " .. M.to_lua(v))
+  end
+  return "{" .. table.concat(code_pairs, ", ") .. "}"
+end
+
 local type_transformers = {
   ["nil"] = function(x) return "nil" end,
   boolean = tostring,
   number = tostring,
   string = function(x) return string.format("%q", x) end,
-  table = function(x) return x:to_lua() end
+  table = function(x)
+    if x.to_lua then
+      return x:to_lua()
+    end
+    return table_to_lua(x)
+  end
 }
 
-local function to_lua(x)
+function M.to_lua(x)
   local type_transformer = type_transformers[type(x)]
   if not type_transformer then
     error("cannot transform: " .. tostring(x))
   end
   return type_transformer(x)
 end
-M.to_lua = to_lua
 
 local function form(type, init, to_lua)
   local mt = {__index = {type = type, to_lua = to_lua}}
@@ -39,7 +51,7 @@ local function cons_to_explist(cons)
     if cons == nil then
       return
     end
-    table.insert(codes, to_lua(cons.car))
+    table.insert(codes, M.to_lua(cons.car))
     collect(cons.cdr)
   end
   collect(cons)
@@ -52,7 +64,7 @@ M.cons = form(
     return {car = car, cdr = cdr}
   end,
   function(self)
-    return to_lua(self.car) .. "(" .. cons_to_explist(self.cdr) .. ")"
+    return M.to_lua(self.car) .. "(" .. cons_to_explist(self.cdr) .. ")"
 end)
 
 M.list = function(...)

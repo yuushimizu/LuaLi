@@ -2,12 +2,7 @@ local form = require("form")
 
 local M = {}
 
-local special_characters = {
-  ["{"] = 1,
-  ["}"] = 1,
-  ["["] = 1,
-  ["]"] = 1
-}
+local special_characters = {}
 
 local function special_character_class()
   local classes = {}
@@ -16,12 +11,6 @@ local function special_character_class()
   end
   return table.concat(classes)
 end
-
-local special_symbols = {
-  ["nil"] = function() return nil end,
-  ["true"] = function() return true end,
-  ["false"] = function() return false end
-}
 
 local session = {}
 
@@ -62,14 +51,11 @@ end
 
 function session:parse_symbol()
   local token = self:next_match("[^%s" .. special_character_class() .. "]+")
-  local value = tonumber(token)
-  if value ~= nil then
-    return value
+  local number = tonumber(token)
+  if number ~= nil then
+    return number
   end
-  local special_symbol = special_symbols[token]
-  if special_symbol then
-    return special_symbol()
-  end
+print(token, token == nil)
   return form.symbol(token)
 end
 
@@ -77,17 +63,17 @@ function session:next_token_start()
   return self:next_match("%S", true)
 end
 
-function session:parse_next()
+function session:parse_next(additional_special_characters)
   local token_start = self:next_token_start()
   if not token_start then
     return
   end
-  local special_parser = special_characters[token_start]
+  local special_parser = (additional_special_characters and additional_special_characters[token_start]) or special_characters[token_start]
   if special_parser then
     self:spend(1)
-    return special_parser(self), true
+    return special_parser(self)
   end
-  return self:parse_symbol(), true
+  return self:parse_symbol()
 end
 
 special_characters['"'] = function(self)
@@ -104,38 +90,83 @@ special_characters['"'] = function(self)
 end
 
 special_characters["'"] = function(self)
-  local next_form, parsed = self:parse_next()
-  if not parsed then
+  local next = self:parse_next()
+  if not next then
     error("unexpected eof")
   end
-  return form.list(form.symbol("quote"), next_form)
+  return form.list(form.symbol("quote"), next)
 end
 
 special_characters["("] = function(self)
+  local close = {}
   local elements = {}
   while true do
-    local token_start = self:next_token_start()
-    if token_start == ")" then
-      self:spend(1)
-      break
-    end
-    local next_form, parsed = self:parse_next()
-    if not parsed then
+    local next = self:parse_next({
+        [")"] = function(self)
+          return close
+        end
+    })
+    if not next then
       error("unexpected eof")
+    elseif next == close then
+      return form.list(unpack(elements))
     end
-    table.insert(elements, next_form)
+    table.insert(elements, next)
   end
-  return form.list(unpack(elements))
 end
 
 special_characters[")"] = function()
   error("unexpected )")
 end
 
+special_characters["{"] = function(self)
+  local close = {}
+  local result = {}
+  while true do
+    local key = self:parse_next({
+        ["}"] = function(self)
+          return close
+        end
+    })
+    if not key then
+      error("unexpected eof")
+    elseif key == close then
+      return result
+    end
+    result[key] = self:parse_next()
+  end
+end
+
+special_characters["}"] = function(self)
+  error("unexpected }")
+end
+
+special_characters["["] = function(self)
+  local close = {}
+  local elements = {}
+  while true do
+    local next = self:parse_next({
+        ["]"] = function(self)
+          return close
+        end
+    })
+    if not next then
+      error("unexpected eof")
+    elseif next == close then
+      return elements
+    end
+    table.insert(elements, next)
+  end
+end
+
+special_characters["]"] = function(self)
+  error("unexpected ]")
+end
+
 function session:parse_toplevel()
-  local form, parsed = self:parse_next()
-  if parsed then
-    self:emit(form)
+  local next = self:parse_next()
+  if next then
+    self:emit(next)
     return self:parse_toplevel()
   end
 end
