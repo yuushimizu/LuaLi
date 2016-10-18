@@ -45,7 +45,7 @@ M.symbol = form(
     return self.name
 end)
 
-local function cons_to_explist(cons)
+local function cons_to_explist(cons, delimiter)
   local codes = {}
   local function collect(cons)
     if cons == nil then
@@ -55,7 +55,17 @@ local function cons_to_explist(cons)
     collect(cons.cdr)
   end
   collect(cons)
-  return table.concat(codes, ", ")
+  return table.concat(codes, delimiter)
+end
+
+local special_forms = {}
+
+special_forms["+"] = function(cdr)
+  return "(" .. cons_to_explist(cdr, " + ") .. ")"
+end
+
+special_forms["fn"] = function(cdr)
+  return "(function(" .. cons_to_explist(cdr.car, ", ") .. ") " .. cons_to_explist(cdr.cdr, "\n") .. " end)"
 end
 
 M.cons = form(
@@ -64,7 +74,11 @@ M.cons = form(
     return {car = car, cdr = cdr}
   end,
   function(self)
-    return M.to_lua(self.car) .. "(" .. cons_to_explist(self.cdr) .. ")"
+    local special_form = type(self.car) == "table" and self.car.type == "symbol" and special_forms[self.car.name]
+    if special_form then
+      return special_form(self.cdr)
+    end
+    return M.to_lua(self.car) .. "(" .. cons_to_explist(self.cdr, ", ") .. ")"
 end)
 
 M.list = function(...)
