@@ -49,7 +49,7 @@ end
 M.cons = form(
   "cons",
   function(car, cdr)
-    return {car = car, cdr = cdr or empty_list}
+    return {car = car, cdr = cdr}
   end,
   function(self)
     return to_lua(self.car) .. "(" .. cons_to_explist(self.cdr) .. ")"
