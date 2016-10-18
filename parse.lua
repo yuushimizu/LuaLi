@@ -96,71 +96,52 @@ special_characters["'"] = function(self)
   return form.list(form.symbol("quote"), next)
 end
 
-special_characters["("] = function(self)
-  local close = {}
-  local elements = {}
-  while true do
-    local next = self:parse_next({
-        [")"] = function(self)
-          return close
-        end
-    })
-    if not next then
-      error("unexpected eof")
-    elseif next == close then
-      return form.list(unpack(elements))
+local function define_delimiter(open, close, f)
+  special_characters[close] = function()
+    error("unexpected " .. close)
+  end
+  local close_mark = {}
+  special_characters[open] = function(self)
+    local values = {}
+    while true do
+      local next = self:parse_next({
+          [close] = function(self) return close_mark end
+      })
+      if not next then
+        error("unexpected eof")
+      elseif next == close_mark then
+        return f(values)
+      end
+      table.insert(values, next)
     end
-    table.insert(elements, next)
   end
 end
 
-special_characters[")"] = function()
-  error("unexpected )")
-end
+define_delimiter(
+  "(", ")",
+  function(values)
+    return form.list(unpack(values))
+end)
 
-special_characters["{"] = function(self)
-  local close = {}
-  local result = {}
-  while true do
-    local key = self:parse_next({
-        ["}"] = function(self)
-          return close
-        end
-    })
-    if not key then
-      error("unexpected eof")
-    elseif key == close then
-      return result
+define_delimiter(
+  "{", "}",
+  function(values)
+    local count = #values
+    if count % 2 == 1 then
+      error("{} contains odd number of forms")
     end
-    result[key] = self:parse_next()
-  end
-end
-
-special_characters["}"] = function(self)
-  error("unexpected }")
-end
-
-special_characters["["] = function(self)
-  local close = {}
-  local elements = {}
-  while true do
-    local next = self:parse_next({
-        ["]"] = function(self)
-          return close
-        end
-    })
-    if not next then
-      error("unexpected eof")
-    elseif next == close then
-      return elements
+    local result = {}
+    for i = 1, count, 2 do
+      result[values[i]] = values[i + 1]
     end
-    table.insert(elements, next)
-  end
-end
+    return result
+end)
 
-special_characters["]"] = function(self)
-  error("unexpected ]")
-end
+define_delimiter(
+  "[", "]",
+  function(values)
+    return values
+end)
 
 function session:parse_toplevel()
   local next = self:parse_next()
