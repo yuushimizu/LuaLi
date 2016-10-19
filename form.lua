@@ -1,3 +1,28 @@
+function asString(value, tableIndent)
+  tableIndent = tableIndent or ""
+  local valueType = type(value)
+  if valueType == "table" then
+    if getmetatable(value) and getmetatable(value).__tostring then
+      return tostring(value)
+    end
+    local result = "{\n"
+    local nextTableIndent = tableIndent .. "  "
+    for k, v in pairs(value) do
+      result = result .. nextTableIndent .. "[" .. asString(k, nextTableIndent) .. "] = " .. asString(v, nextTableIndent) .. ",\n"
+    end
+    result = result .. tableIndent .. "}"
+    return result
+  elseif valueType == "string" then
+    return '"' .. value .. '"'
+  end
+  return tostring(value)
+end
+
+function dump(value)
+  print(asString(value))
+end
+
+
 local M = {}
 
 local function table_to_lua(t)
@@ -45,27 +70,49 @@ M.symbol = form(
     return self.name
 end)
 
+local function each_cons(cons)
+  return function(cons, current)
+    if not current then
+      return cons
+    end
+    return current.cdr
+  end, cons
+end
+
 local function cons_to_explist(cons, delimiter)
   local codes = {}
-  local function collect(cons)
-    if cons == nil then
-      return
-    end
+  for cons in each_cons(cons) do
     table.insert(codes, M.to_lua(cons.car))
-    collect(cons.cdr)
   end
-  collect(cons)
   return table.concat(codes, delimiter)
 end
 
+local function add_return_to_last(cons)
+  local result = M.cons()
+  local current = result
+  for cons in each_cons(cons) do
+    if cons.cdr or cons.car.car.name == "return" then
+      current.cdr = M.cons(cons.car)
+    else
+      current.cdr = M.cons(M.cons(M.symbol("return"), M.cons(cons.car)))
+    end
+    current = current.cdr
+  end
+  return result.cdr or M.cons(M.cons(M.symbol("return")))
+end
+
 local special_forms = {}
+
+special_forms["return"] = function(cdr)
+  return "return " .. cons_to_explist(cdr, ", ")
+end
 
 special_forms["+"] = function(cdr)
   return "(" .. cons_to_explist(cdr, " + ") .. ")"
 end
 
 special_forms["fn"] = function(cdr)
-  return "(function(" .. cons_to_explist(cdr.car, ", ") .. ") " .. cons_to_explist(cdr.cdr, "\n") .. " end)"
+  return "(function(" .. cons_to_explist(cdr.car, ", ") .. ") " .. cons_to_explist(add_return_to_last(cdr.cdr), "\n") .. " end)"
 end
 
 M.cons = form(
@@ -80,14 +127,5 @@ M.cons = form(
     end
     return M.to_lua(self.car) .. "(" .. cons_to_explist(self.cdr, ", ") .. ")"
 end)
-
-M.list = function(...)
-  local args = {...}
-  local result = nil
-  for i = select("#", ...), 1, -1 do
-    result = M.cons(args[i], result)
-  end
-  return result
-end
 
 return M

@@ -53,8 +53,18 @@ function session:next_match(pattern)
   end
 end
 
+local special_symbols = {
+  ["nil"] = function() return nil end,
+  ["true"] = function() return true end,
+  ["false"] = function() return false end
+}
+
 function session:parse_symbol()
   local token = self:next_match("[^%s" .. special_character_class() .. "]+")
+  local special_symbol = special_symbols[token]
+  if special_symbol then
+    return special_symbol()
+  end
   local number = tonumber(token)
   if number ~= nil then
     return number
@@ -69,10 +79,10 @@ function session:parse_next(additional_special_characters)
   end
   local special_parser = (additional_special_characters and additional_special_characters[token_start]) or special_characters[token_start]
   if special_parser then
-    return special_parser(self)
+    return special_parser(self), true
   end
   self:push_back(token_start)
-  return self:parse_symbol()
+  return self:parse_symbol(), true
 end
 
 special_characters['"'] = function(self)
@@ -89,11 +99,11 @@ special_characters['"'] = function(self)
 end
 
 special_characters["'"] = function(self)
-  local next = self:parse_next()
-  if not next then
+  local next, parsed = self:parse_next()
+  if not parsed then
     error("unexpected eof")
   end
-  return form.list(form.symbol("quote"), next)
+  return form.cons(form.symbol("quote"), form.cons(next))
 end
 
 local function define_delimiter(open, close, f)
@@ -102,50 +112,57 @@ local function define_delimiter(open, close, f)
   end
   local close_mark = {}
   special_characters[open] = function(self)
-    local values = {}
+    local each, complete = f(self)
     while true do
-      local next = self:parse_next({
+      local next, parsed = self:parse_next({
           [close] = function(self) return close_mark end
       })
-      if not next then
+      if not parsed then
         error("unexpected eof")
       elseif next == close_mark then
-        return f(values)
+        return complete()
       end
-      table.insert(values, next)
+      each(next)
     end
   end
 end
 
 define_delimiter(
   "(", ")",
-  function(values)
-    return form.list(unpack(values))
+  function()
+    local head = form.cons()
+    local current_cons = head
+    return function(next)
+      current_cons.cdr = form.cons(next)
+      current_cons = current_cons.cdr
+    end, function() return head.cdr end
 end)
 
 define_delimiter(
   "{", "}",
-  function(values)
-    local count = #values
-    if count % 2 == 1 then
-      error("{} contains odd number of forms")
-    end
+  function(self, values)
     local result = {}
-    for i = 1, count, 2 do
-      result[values[i]] = values[i + 1]
-    end
-    return result
+    return function(next)
+      local value, parsed = self:parse_next()
+      if not parsed then
+        error("{} contains odd number of forms")
+      end
+      result[value] = parsed
+    end, function() return result end
 end)
 
 define_delimiter(
   "[", "]",
-  function(values)
-    return values
+  function()
+    local result = {}
+    return function(next)
+      table.insert(result, next)
+    end, function() return result end
 end)
 
 function session:parse_toplevel()
-  local next = self:parse_next()
-  if next then
+  local next, parsed = self:parse_next()
+  if parsed then
     self:emit(next)
     return self:parse_toplevel()
   end
