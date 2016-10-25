@@ -20,8 +20,12 @@ local function as_string(value, table_indent)
   return tostring(value)
 end
 
-function dump(value)
+function M.dump(value)
   print(as_string(value))
+end
+
+function M.identity(x)
+  return x
 end
 
 return M

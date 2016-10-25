@@ -60,8 +60,7 @@ local special_symbols = {
   ["false"] = function() return false end
 }
 
-function session:parse_symbol()
-  local token = self:next_match("[^%s" .. special_character_class() .. "]+")
+function parse_symbol_token(token)
   local special_symbol = special_symbols[token]
   if special_symbol then
     return special_symbol()
@@ -70,7 +69,15 @@ function session:parse_symbol()
   if number ~= nil then
     return number
   end
+  local left, right = token:match("(.+)%.(.+)")
+  if left then
+    return form.cons(form.symbol("."), form.cons(right, form.cons(parse_symbol_token(left))))
+  end
   return form.symbol(token)
+end
+
+function session:parse_symbol()
+  return parse_symbol_token(self:next_match("[^%s" .. special_character_class() .. "]+"))
 end
 
 function session:parse_next(additional_special_characters)
