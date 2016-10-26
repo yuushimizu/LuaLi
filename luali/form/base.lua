@@ -55,20 +55,16 @@ end
 
 local type_forms = {
   ["nil"] = {
-    compile = util.constantly("nil"),
-    eval = util.identity1
+    compile = function(form, env) return "nil" end
   },
   boolean = {
     compile = tostring,
-    eval = util.identity1
   },
   number = {
     compile = tostring,
-    eval = util.identity1
   },
   string = {
     compile = function(form, env) return string.format("%q", form) end,
-    eval = util.identity1
   },
   table = {
     compile = function(form, env)
@@ -99,7 +95,10 @@ function M.eval(form, env)
   if not type_form then
     error("attempt to eval " .. tostring(form))
   end
-  return type_form.eval(form, env)
+  if type_form.eval then
+    return type_form.eval(form, env)
+  end
+  return form
 end
 
 local function form(init, methods)

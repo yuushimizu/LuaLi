@@ -26,16 +26,4 @@ function M.dump(...)
   end
 end
 
-function M.identity(x)
-  return x
-end
-
-function M.identity1(x)
-  return (x)
-end
-
-function M.constantly(x)
-  return function() return x end
-end
-
 return M
