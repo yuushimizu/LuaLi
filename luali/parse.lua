@@ -1,5 +1,4 @@
-local PARENT = string.match((...) or "", "(.-)%.[^.]+$") or ""
-local form = require(PARENT .. ".form")
+local form = require("luali.form")
 
 local M = {}
 

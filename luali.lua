@@ -1,16 +1,17 @@
-local PARENT = string.match((...) or "", "(.-)%.[^.]+$") or ""
-local form = require(PARENT .. ".luali.form")
-local parse = require(PARENT .. ".luali.parse")
+local form = require("luali.form")
+local parse = require("luali.parse")
+local util = require("luali.util")
 
 local cons = form.cons
 
 local function eval(s)
   print("--")
   print("eval:", s)
+  local env = form.env()
   parse.parse(
     coroutine.wrap(function() coroutine.yield(s) end),
     function(lisp_form)
-      local code = form.to_lua(lisp_form)
+      local code = form.compile(lisp_form, env)
       print("lua:", code)
       local f, error = loadstring("return " .. code)
       if error then
@@ -31,7 +32,8 @@ local function eval_lisp(s)
     coroutine.wrap(function() coroutine.yield(s) end),
     function(lisp_form)
       local result = {pcall(function() return form.eval(lisp_form, env) end)}
-      print(result[1] and "return:" or "error:", select(2, unpack(result)))
+      print(result[1] and "return:" or "error:")
+      util.dump(select(2, unpack(result)))
     end
   );
 end
@@ -73,3 +75,5 @@ eval_lisp("(if (== (+ 1 1) 2) \"two!\" \"other!\")")
 eval_lisp("(if (== (+ 1 2) 2) \"two!\" \"other!\")")
 eval_lisp("(print x) ((fn (x y) (+ 100 (+ x y))) 12 34) (print x)")
 eval_lisp("(local x 10) (print x) x")
+eval_lisp("(if (== (+ 1 1) 2) (print \"foo\"))")
+eval_lisp('{"a" (+ 1 3) "b" 2}')

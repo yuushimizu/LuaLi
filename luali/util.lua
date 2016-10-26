@@ -20,12 +20,22 @@ local function as_string(value, table_indent)
   return tostring(value)
 end
 
-function M.dump(value)
-  print(as_string(value))
+function M.dump(...)
+  for _, arg in ipairs({...}) do
+    print(as_string(arg))
+  end
 end
 
 function M.identity(x)
   return x
+end
+
+function M.identity1(x)
+  return (x)
+end
+
+function M.constantly(x)
+  return function() return x end
 end
 
 return M
