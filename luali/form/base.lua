@@ -30,11 +30,14 @@ function M.env(parent)
       }, env_mt)
 end
 
-local lisp_form_mark = {}
+local lisp_forms = {}
 
-local function is_lisp_form(form)
+local function lisp_form(form)
+  if type(form) ~= "table" then
+    return nil
+  end
   local mt = getmetatable(form)
-  return mt and mt.lisp_form_mark == lisp_form_mark
+  return mt and lisp_forms[mt.lisp_form_type]
 end
 
 local function compile_table(t, env)
@@ -48,7 +51,7 @@ end
 local function eval_table(t, env)
   local result = {}
   for i, v in pairs(t) do
-    result[M.eval(i, env)] = M.eval(i, v)
+    result[M.eval(i, env)] = M.eval(v, env)
   end
   return result
 end
@@ -68,14 +71,16 @@ local type_forms = {
   },
   table = {
     compile = function(form, env)
-      if is_lisp_form(form) then
-        return form:compile(env)
+      local lf = lisp_form(form)
+      if lf then
+        return lf.compile(form, env)
       end
       return compile_table(form, env)
     end,
     eval = function(form, env)
-      if is_lisp_form(form) then
-        return form:eval(env)
+      local lf = lisp_form(form)
+      if lf then
+        return lf.eval(form, env)
       end
       return eval_table(form, env)
     end
@@ -101,21 +106,20 @@ function M.eval(form, env)
   return form
 end
 
-local function form(init, methods)
-  local mt = {
-    lisp_form_mark = lisp_form_mark,
-    __index = methods
-  }
-  local new = function(...)
+local function define_form(name, init, methods)
+  local mt = {lisp_form_type = name}
+  methods.new = function(...)
     return setmetatable(init(...), mt)
   end
-  local is = function(form)
-    return type(form) == "table" and getmetatable(form) == mt
+  methods.is = function(form)
+    return lisp_form(form) == methods
   end
-  return new, is
+  lisp_forms[name] = methods
+  return methods
 end
 
-M.symbol, M.is_symbol = form(
+local symbol = define_form(
+  "symbol",
   function(name)
     return {name = name}
   end, {
@@ -126,6 +130,8 @@ M.symbol, M.is_symbol = form(
       return env:find_value(self.name)
     end
 })
+M.symbol = symbol.new
+M.is_symbol = symbol.is
 
 local function car(cons)
   return cons and cons.car
@@ -180,7 +186,8 @@ local function eval_cons_as_list(cons, env)
   return result
 end
 
-M.cons, M.is_cons = form(
+local cons = define_form(
+  "cons",
   function(car, cdr)
     return {car = car, cdr = cdr}
   end, {
@@ -200,6 +207,8 @@ M.cons, M.is_cons = form(
       return M.eval(car(self), env)(unpack(args))
     end
 })
+M.cons = cons.new
+M.is_cons = cons.is
 
 local function add_special_form(name, methods)
   special_forms[name] = methods

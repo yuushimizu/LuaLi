@@ -154,7 +154,7 @@ define_delimiter(
       if not parsed then
         error("{} contains odd number of forms")
       end
-      result[value] = parsed
+      result[next] = value
     end, function() return result end
 end)
 
