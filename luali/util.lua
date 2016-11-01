@@ -26,4 +26,12 @@ function M.dump(...)
   end
 end
 
+M.inf = 1 / 0
+
+M.nan = 0 / 0
+
+function M.is_nan(n)
+  return n ~= n
+end
+
 return M

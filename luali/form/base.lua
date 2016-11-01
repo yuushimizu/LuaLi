@@ -30,81 +30,89 @@ function M.env(parent)
       }, env_mt)
 end
 
-local lisp_forms = {}
+local lisp_form_handlers = {}
 
-local function lisp_form(form)
+local function lisp_form_handler(form)
   if type(form) ~= "table" then
     return nil
   end
   local mt = getmetatable(form)
-  return mt and lisp_forms[mt.lisp_form_type]
+  return mt and lisp_form_handlers[mt.lisp_form_type]
 end
 
-local function compile_table(t, env)
-  local code_pairs = {}
+local function compile_quoted_table(t, env)
+  local entries = {}
   for i, v in pairs(t) do
-    table.insert(code_pairs, "[" .. M.compile(i, env) .. "] = " .. M.compile(v, env))
+    table.insert(entries, "[" .. M.compile_quoted(i, env) .. "] = " .. M.compile_quoted(v, env))
   end
-  return "{" .. table.concat(code_pairs, ", ") .. "}"
+  return "({" .. table.concat(entries, ", ") .. "})"
 end
 
-local function eval_table(t, env)
-  local result = {}
-  for i, v in pairs(t) do
-    result[M.eval(i, env)] = M.eval(v, env)
-  end
-  return result
-end
-
-local type_forms = {
+local data_form_handlers = {
   ["nil"] = {
-    compile = function(form, env) return "nil" end
+    compile = tostring
   },
   boolean = {
-    compile = tostring,
+    compile = tostring
   },
   number = {
-    compile = tostring,
+    compile = function(form, env)
+      if util.is_nan(form) then
+        return "(0 / 0)"
+      end
+      if form == util.inf then
+        return "(1 / 0)"
+      end
+      if form == -util.inf then
+        return "(-(1 / 0))"
+      end
+      return tostring(form)
+    end
   },
   string = {
-    compile = function(form, env) return string.format("%q", form) end,
+    compile = function(form, env) return string.format("%q", form) end
   },
   table = {
     compile = function(form, env)
-      local lf = lisp_form(form)
-      if lf then
-        return lf.compile(form, env)
+      local entries = {}
+      for i, v in pairs(form) do
+        table.insert(entries, "[" .. M.compile(i, env) .. "] = " .. M.compile(v, env))
       end
-      return compile_table(form, env)
+      return "({" .. table.concat(entries, ", ") .. "})"
     end,
     eval = function(form, env)
-      local lf = lisp_form(form)
-      if lf then
-        return lf.eval(form, env)
+      local result = {}
+      for i, v in pairs(form) do
+        result[M.eval(i, env)] = M.eval(v, env)
       end
-      return eval_table(form, env)
-    end
+      return result
+    end,
+    compile_quoted = compile_quoted_table
   }
 }
 
-function M.compile(form, env)
-  local type_form = type_forms[type(form)]
-  if not type_form then
-    error("attempt to transform " .. tostring(form))
+local function form_processor(name, default)
+  return function(form, env)
+    local lf_handler = lisp_form_handler(form)
+    if lf_handler then
+      return lf_handler[name](form, env)
+    end
+    local data_form_handler = data_form_handlers[type(form)]
+    if data_form_handler then
+      local f = data_form_handler[name] or default
+      if f then
+        return f(form, env)
+      end
+    end
+    error("attempt to " .. name .. tostring(form))
   end
-  return type_form.compile(form, env)
 end
 
-function M.eval(form, env)
-  local type_form = type_forms[type(form)]
-  if not type_form then
-    error("attempt to eval " .. tostring(form))
-  end
-  if type_form.eval then
-    return type_form.eval(form, env)
-  end
-  return form
-end
+M.compile = form_processor("compile")
+
+M.eval = form_processor("eval", function(form, env) return form end)
+
+M.compile_quoted = form_processor("compile_quoted", function(form, env) return M.compile(form, env) end)
 
 local function define_form(name, init, methods)
   local mt = {lisp_form_type = name}
@@ -112,9 +120,12 @@ local function define_form(name, init, methods)
     return setmetatable(init(...), mt)
   end
   methods.is = function(form)
-    return lisp_form(form) == methods
+    return lisp_form_handler(form) == methods
   end
-  lisp_forms[name] = methods
+  methods.compile_quoted = function(form, env)
+    return "setmetatable(" .. compile_quoted_table(form, env) .. ", " .. compile_quoted_table(mt, env) .. ")"
+  end
+  lisp_form_handlers[name] = methods
   return methods
 end
 
@@ -123,11 +134,11 @@ local symbol = define_form(
   function(name)
     return {name = name}
   end, {
-    compile = function(self, env)
-      return self.name
+    compile = function(form, env)
+      return form.name
     end,
-    eval = function(self, env)
-      return env:find_value(self.name)
+    eval = function(form, env)
+      return env:find_value(form.name)
     end
 })
 M.symbol = symbol.new
@@ -191,20 +202,20 @@ local cons = define_form(
   function(car, cdr)
     return {car = car, cdr = cdr}
   end, {
-    compile = function(self, env)
-      local special_form = symbol_special_form(car(self))
+    compile = function(form, env)
+      local special_form = symbol_special_form(car(form))
       if special_form then
-        return special_form.compile(cdr(self), env)
+        return special_form.compile(cdr(form), env)
       end
-      return M.compile(car(self), env) .. "(" .. cons_to_explist(cdr(self), env, ", ") .. ")"
+      return M.compile(car(form), env) .. "(" .. cons_to_explist(cdr(form), env, ", ") .. ")"
     end,
-    eval = function(self, env)
-      local special_form = symbol_special_form(car(self))
+    eval = function(form, env)
+      local special_form = symbol_special_form(car(form))
       if special_form then
-        return special_form.eval(cdr(self), env)
+        return special_form.eval(cdr(form), env)
       end
-      local args = eval_cons_as_list(cdr(self), env)
-      return M.eval(car(self), env)(unpack(args))
+      local args = eval_cons_as_list(cdr(form), env)
+      return M.eval(car(form), env)(unpack(args))
     end
 })
 M.cons = cons.new
@@ -215,12 +226,22 @@ local function add_special_form(name, methods)
 end
 
 add_special_form(
-  ".", {
+  "quote", {
     compile = function(args, env)
-      return M.compile(cadr(args), env) .. "[" .. M.compile(car(args), env) .. "]"
+      return M.compile_quoted(car(args), env)
     end,
     eval = function(args, env)
-      return M.eval(cadr(args), env)[M.eval(car(args), env)]
+      return car(args)
+    end
+})
+
+add_special_form(
+  ".", {
+    compile = function(args, env)
+      return M.compile(car(args), env) .. "[" .. M.compile(cadr(args), env) .. "]"
+    end,
+    eval = function(args, env)
+      return M.eval(car(args), env)[M.eval(cadr(args), env)]
     end
 })
 
@@ -241,6 +262,16 @@ add_special_form(
     end,
     eval = function(args, env)
       env:set_local(car(args).name, M.eval(cadr(args), env))
+    end
+})
+
+add_special_form(
+  "=", {
+    compile = function(args, env)
+      return M.compile(car(args), env) .. " = " .. M.compile(cadr(args))
+    end,
+    eval = function(args, env)
+      --
     end
 })
 

@@ -70,7 +70,7 @@ function parse_symbol_token(token)
   end
   local left, right = token:match("(.+)%.(.+)")
   if left then
-    return form.cons(form.symbol("."), form.cons(right, form.cons(parse_symbol_token(left))))
+    return form.cons(form.symbol("."), form.cons(parse_symbol_token(left), form.cons(right)))
   end
   return form.symbol(token)
 end
