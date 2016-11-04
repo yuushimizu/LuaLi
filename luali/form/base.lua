@@ -169,6 +169,14 @@ local function each_cons(cons)
   end, cons
 end
 
+local function reverse_list(cons)
+  local result = nil
+  for cons in each_cons(cons) do
+    result = M.cons(car(cons), result)
+  end
+  return result
+end
+
 local function cons_to_table(cons, f)
   local result = {}
   local nil_placeholder = {}
@@ -216,8 +224,13 @@ local cons = define_form(
       if special_form then
         return special_form.eval(cdr(form), env)
       end
-      local args = cons_to_table(cdr(form), function(cons) return M.eval(car(cons), env) end)
-      return M.eval(car(form), env)(unpack(args))
+      local function call(args, ...)
+        if not args then
+          return M.eval(car(form), env)(...)
+        end
+        return call(cdr(args), M.eval(car(args), env), ...)
+      end
+      return call(reverse_list(cdr(form)))
     end
 })
 M.cons = cons.new

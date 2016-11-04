@@ -177,7 +177,7 @@ end
 
 local session_mt = {__index = session}
 
-M.parse = function(reader, callback)
+function M.parse(reader, callback)
   local session = setmetatable(
     {
       reader = reader,
