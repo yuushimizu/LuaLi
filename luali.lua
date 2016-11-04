@@ -5,34 +5,37 @@ local util = require("luali.util")
 local cons = form.cons
 
 local function eval(s)
-  print("--")
+  print("==")
   print("lisp:", s)
+  local lua = ""
+  local last_lua = nil
   local env = form.env()
   parse.parse(
     coroutine.wrap(function() coroutine.yield(s) end),
     function(lisp_form)
-      local code = form.compile(lisp_form, env)
-      print("---- compile and eval")
-      print("lua:", code)
-      local f, error = loadstring("return " .. code)
-      if error then
-        print("load error:", error)
-      else
-        local result = {pcall(f)}
-        print(result[1] and "return:" or "error:")
-        util.dump(select(2, unpack(result)))
-      end
-  end)
-  env = form.env()
-  parse.parse(
-    coroutine.wrap(function() coroutine.yield(s) end),
-    function(lisp_form)
-      print("---- eval lisp")
+      print("-- eval lisp")
       local result = {pcall(function() return form.eval(lisp_form, env) end)}
       print(result[1] and "return:" or "error:")
       util.dump(select(2, unpack(result)))
-    end
-  );
+      local code = form.compile(lisp_form, env)
+      if last_lua then
+        lua = lua .. last_lua .. ";\n"
+      end
+      last_lua = code
+  end)
+  print("-- compile")
+  lua = lua .. "return " .. last_lua .. ";\n"
+  print("lua:")
+  print(lua)
+  local f, error = loadstring(lua)
+  if error then
+    print("load error:", error)
+  else
+    print("-- eval lua")
+    local result = {pcall(f)}
+    print(result[1] and "return:" or "error:")
+    util.dump(select(2, unpack(result)))
+  end
   print()
 end
 
@@ -72,3 +75,4 @@ eval("(print (. [10 20 30] 2))")
 eval("(print x) ((fn (x y) (+ 100 (+ x y))) 12 34) (print x)")
 eval("(local x 10) (print x) x")
 eval("(if (== (+ 1 1) 2) (print \"foo\"))")
+eval("(local a b (unpack [10 20])) (print a b)")

@@ -169,32 +169,34 @@ local function each_cons(cons)
   end, cons
 end
 
-local function cons_to_explist(cons, env, delimiter, return_last)
-  local codes = {}
+local function cons_to_table(cons, f)
+  local result = {}
+  local nil_placeholder = {}
+  local index = 1
   for cons in each_cons(cons) do
-    local code = M.compile(car(cons), env)
-    if not cdr(cons) and return_last then
-      code = "return " .. code
-    end
-    table.insert(codes, code)
+    result[index] = (f or car)(cons) or nil_placeholder
+    index = index + 1
   end
-  return table.concat(codes, delimiter)
+  for i, v in ipairs(result) do
+    if v == nil_placeholder then
+      result[i] = nil
+    end
+  end
+  return result
+end
+
+local function cons_to_codes(cons, env)
+  return cons_to_table(cons, function(cons) return M.compile(car(cons), env) end)
+end
+
+local function cons_to_explist(cons, env)
+  return table.concat(cons_to_codes(cons, env), ", ")
 end
 
 local special_forms = {}
 
 local function symbol_special_form(symbol)
   return M.is_symbol(symbol) and special_forms[symbol.name]
-end
-
-local function eval_cons_as_list(cons, env)
-  local index = 1
-  local result = {}
-  for cons in each_cons(cons) do
-    result[index] = M.eval(car(cons), env)
-    index = index + 1
-  end
-  return result
 end
 
 local cons = define_form(
@@ -207,14 +209,14 @@ local cons = define_form(
       if special_form then
         return special_form.compile(cdr(form), env)
       end
-      return M.compile(car(form), env) .. "(" .. cons_to_explist(cdr(form), env, ", ") .. ")"
+      return M.compile(car(form), env) .. "(" .. cons_to_explist(cdr(form), env) .. ")"
     end,
     eval = function(form, env)
       local special_form = symbol_special_form(car(form))
       if special_form then
         return special_form.eval(cdr(form), env)
       end
-      local args = eval_cons_as_list(cdr(form), env)
+      local args = cons_to_table(cdr(form), function(cons) return M.eval(car(cons), env) end)
       return M.eval(car(form), env)(unpack(args))
     end
 })
@@ -258,10 +260,19 @@ add_special_form(
 add_special_form(
   "local", {
     compile = function(args, env)
-      return "local " .. M.compile(car(args), env) .. " = " .. M.compile(cadr(args), env)
+      local vars = cons_to_codes(args, env)
+      local assign = nil
+      if #vars > 1 then
+        assign = " = " .. table.remove(vars, #vars)
+      end
+      return "local " .. table.concat(vars, ", ") .. assign
     end,
     eval = function(args, env)
-      env:set_local(car(args).name, M.eval(cadr(args), env))
+      local arg_list = cons_to_table(args)
+      local values = {M.eval(table.remove(arg_list, #arg_list), env)}
+      for i, value in ipairs(values) do
+        env:set_local(arg_list[i].name, value)
+      end
     end
 })
 
@@ -278,17 +289,17 @@ add_special_form(
 add_special_form(
   "+", {
     compile = function(args, env)
-      return "(" .. cons_to_explist(args, env, " + ") .. ")"
+      return "(" .. table.concat(cons_to_codes(args, env), " + ") .. ")"
     end,
     eval = function(args, env)
-      return M.eval(car(args), env) + M.eval(cadr(args), env)
+      return M.eval(car(args), env) + M.eval(cadr(args), env) --
     end
 })
 
 add_special_form(
   "==", {
     compile = function(args, env)
-      return "(" .. cons_to_explist(args, env, " == ") .. ")"
+      return "(" .. M.compile(car(args), env) .. " == " .. M.compile(cadr(args)) .. ")"
     end,
     eval = function(args, env)
       return M.eval(car(args), env) == M.eval(cadr(args), env)
@@ -312,7 +323,11 @@ add_special_form(
 add_special_form(
   "fn", {
     compile = function(args, env)
-      return "(function(" .. cons_to_explist(car(args), env, ", ") .. ") " .. cons_to_explist(cdr(args), env, "\n", true) .. " end)"
+      local codes = cons_to_codes(cdr(args), env)
+      if #codes > 0 then
+        codes[#codes] = "return " .. codes[#codes]
+      end
+      return "(function(" .. cons_to_explist(car(args), env) .. ") " .. table.concat(codes, ";\n") .. " end)"
     end,
     eval = function(args, env)
       local arg_names = {}
