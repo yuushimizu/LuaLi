@@ -22,7 +22,7 @@ function M.env(parent)
     parent and
       {
         global = parent.global,
-        locals = {__index = parent.locals}
+        locals = setmetatable({}, {__index = parent.locals})
       } or
       {
         global = setmetatable({}, {__index = _G}),
